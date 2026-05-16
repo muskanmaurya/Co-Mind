@@ -292,6 +292,8 @@ NODE_ENV=development
 MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/db
 JWT_SECRET=your_random_secret_key
 GEMINI_API_KEY=... (optional)
+
+# Keep real credentials only in your local .env file; never commit them.
 ```
 
 ---

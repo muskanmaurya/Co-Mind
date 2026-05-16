@@ -23,14 +23,16 @@ PORT=8000
 NODE_ENV=development
 
 # MongoDB Atlas
-MONGO_URI=mongodb+srv://co-minds_db_user:CKBWsGhErHRo2yeS@cluster0.9ds4z5i.mongodb.net/co-mind
+MONGO_URI=mongodb+srv://<db_username>:<db_password>@cluster0.9ds4z5i.mongodb.net/
 
 # JWT Secret (Generate a strong random string)
-JWT_SECRET=pHkxxR61ZiKFSkP4nR144dQXa0vR0kaunyG9AiRmED7
+JWT_SECRET=<your_jwt_secret>
 
 # Google Gemini API Key (Optional - for AI summary generation)
 # Get your API key from https://makersuite.google.com/app/apikey
 GEMINI_API_KEY=...
+
+# Important: keep real values only in your local Server/.env file and never commit them to GitHub.
 ```
 
 ### **Generate JWT_SECRET**
