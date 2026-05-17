@@ -1,5 +1,25 @@
 import noteModel from '../models/notes.model.js';
 
+const normalizeActionItems = (actionItems = []) => {
+  if (!Array.isArray(actionItems)) return [];
+
+  return actionItems
+    .map((item) => {
+      if (typeof item === 'string') {
+        const text = item.trim();
+        return text ? { text, isCompleted: false } : null;
+      }
+
+      if (!item || typeof item !== 'object') return null;
+
+      const text = typeof item.text === 'string' ? item.text.trim() : '';
+      if (!text) return null;
+
+      return { text, isCompleted: Boolean(item.isCompleted) };
+    })
+    .filter(Boolean);
+};
+
 /**
  * Get a publicly shared note by shareId
  * GET /shared/:shareId
@@ -42,7 +62,12 @@ export const getPublicNote = async (req, res) => {
         title: note.title,
         content: note.content,
         tags: note.tags,
-        aiMetadata: note.aiMetadata,
+        aiMetadata: note.aiMetadata
+          ? {
+              ...note.aiMetadata,
+              actionItems: normalizeActionItems(note.aiMetadata.actionItems || note.aiMetadata.action_items || []),
+            }
+          : note.aiMetadata,
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
         shareId: note.shareId,

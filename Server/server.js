@@ -6,9 +6,29 @@ import notesRoutes from './src/routes/notes.routes.js';
 import sharedRoutes from './src/routes/shared.routes.js';
 import dashboardRoutes from './src/routes/dashboard.routes.js';
 import morgan from 'morgan';
+import cors from 'cors';
+
 
 const app = express();
 dotenv.config();
+
+const allowedOrigins = (process.env.CLIENT_ORIGINS || 'http://localhost:5173,http://localhost:5174')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow non-browser tools (Postman/curl) and configured frontend origins
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error('CORS blocked for this origin'));
+    },
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false,
+}));
 
 app.use(express.json()); // Middleware to parse JSON bodies
 app.use(morgan('dev')); // Logging middleware for development

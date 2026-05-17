@@ -14,7 +14,12 @@ const noteSchema = new mongoose.Schema(
     shareId: { type: String, unique: true }, // For the public share page
     aiMetadata: {
       summary: String,
-      actionItems: [String],
+      actionItems: [
+        {
+          text: { type: String, required: true },
+          isCompleted: { type: Boolean, default: false },
+        },
+      ],
       suggestedTitle: String,
     },
     isArchived: { type: Boolean, default: false },

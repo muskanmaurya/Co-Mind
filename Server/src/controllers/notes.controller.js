@@ -13,6 +13,29 @@ const verifyOwnership = (note, userId) => {
   return note && note.userId.toString() === userId;
 };
 
+const normalizeActionItems = (actionItems = []) => {
+  if (!Array.isArray(actionItems)) return [];
+
+  return actionItems
+    .map((item) => {
+      if (typeof item === 'string') {
+        const text = item.trim();
+        return text ? { text, isCompleted: false } : null;
+      }
+
+      if (!item || typeof item !== 'object') return null;
+
+      const text = typeof item.text === 'string' ? item.text.trim() : '';
+      if (!text) return null;
+
+      return {
+        text,
+        isCompleted: Boolean(item.isCompleted),
+      };
+    })
+    .filter(Boolean);
+};
+
 /**
  * Create a new note
  * POST /notes
@@ -148,7 +171,7 @@ export const updateNote = async (req, res) => {
     }
 
     // Whitelist allowed fields (prevent unauthorized field updates)
-    const allowedFields = ['title', 'content', 'tags', 'isPublic', 'isArchived'];
+    const allowedFields = ['title', 'content', 'tags', 'isPublic', 'isArchived', 'aiMetadata'];
     const filteredUpdate = {};
 
     for (const key of allowedFields) {
@@ -181,6 +204,24 @@ export const updateNote = async (req, res) => {
 
     if ('isArchived' in filteredUpdate && typeof filteredUpdate.isArchived !== 'boolean') {
       return res.status(400).json({ message: 'isArchived must be a boolean' });
+    }
+
+    if ('aiMetadata' in filteredUpdate) {
+      const metadata = filteredUpdate.aiMetadata;
+      if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+        return res.status(400).json({ message: 'aiMetadata must be an object' });
+      }
+
+      const normalizedActionItems = normalizeActionItems(metadata.actionItems || metadata.action_items || []);
+      filteredUpdate.aiMetadata = {
+        summary: typeof metadata.summary === 'string' ? metadata.summary.trim() : '',
+        actionItems: normalizedActionItems,
+        suggestedTitle: typeof metadata.suggestedTitle === 'string'
+          ? metadata.suggestedTitle.trim()
+          : typeof metadata.suggested_title === 'string'
+            ? metadata.suggested_title.trim()
+            : undefined,
+      };
     }
 
     // Trim string fields
@@ -364,8 +405,13 @@ export const generateSummary = async (req, res) => {
       });
     }
 
-    // Generate AI metadata
-    const aiMetadata = await generateAIMetadata(note.title, note.content);
+    // Generate AI metadata and normalize it to the schema shape before saving
+    const rawAiMetadata = await generateAIMetadata(note.title, note.content);
+    const aiMetadata = {
+      summary: rawAiMetadata?.summary || '',
+      actionItems: normalizeActionItems(rawAiMetadata?.action_items || rawAiMetadata?.actionItems || []),
+      suggestedTitle: rawAiMetadata?.suggested_title || rawAiMetadata?.suggestedTitle || note.title,
+    };
     
     console.log('\n📊 CONTROLLER - AI Metadata received from service:');
     console.log(JSON.stringify(aiMetadata, null, 2));
@@ -382,8 +428,8 @@ export const generateSummary = async (req, res) => {
     // Update note with AI metadata
     const updatedNote = await noteModel.findByIdAndUpdate(
       id,
-      { aiMetadata },
-      { new: true }
+      { $set: { aiMetadata } },
+      { new: true, runValidators: true }
     );
     
     console.log('\n💾 CONTROLLER - Updated note with aiMetadata:');
