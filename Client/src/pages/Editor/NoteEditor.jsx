@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import api from '../../services/api'
+import NotFound from '../NotFound/NotFound' // ✅ Pull in aesthetic error view
 
 const normalizeActionItems = (actionItems = []) => {
   if (!Array.isArray(actionItems)) return []
@@ -50,12 +51,13 @@ const NoteEditor = () => {
   const [aiLoading, setAiLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
+  const [noteExists, setNoteExists] = useState(true) // ✅ Safe state tracking
 
   // ✅ REFS: Tracking data for save operations (NOT in closure dependencies)
   const timer = useRef(null)
   const hasLoadedData = useRef(false)
-  const pendingChanges = useRef({})  // ← NEW: Track pending changes without causing re-renders
-  const noteRef = useRef(null)  // ← Keep latest note data
+  const pendingChanges = useRef({})  
+  const noteRef = useRef(null)  
 
   // Sync noteRef with state so save function always has current data
   useEffect(() => {
@@ -76,18 +78,21 @@ const NoteEditor = () => {
             }
           : loadedNote.aiMetadata
         const hydratedNote = aiMetadata ? { ...loadedNote, aiMetadata } : loadedNote
+        
         setNote(hydratedNote)
         noteRef.current = hydratedNote
         pendingChanges.current = {}
         hasLoadedData.current = true
+        setNoteExists(true) // Document located successfully
       } catch (err) {
         console.error('❌ Failed to load note:', err)
+        setNoteExists(false) // ✅ Route parameters do not match any Mongo documents
       } finally {
         setIsInitialLoading(false)
       }
     }
     loadInitialNote()
-  }, [id])
+  }, [id, token])
 
   // Cleanup timer on unmount
   useEffect(() => () => {
@@ -120,7 +125,6 @@ const NoteEditor = () => {
       console.log('💾 Saving payload:', payload)
       const res = await api.notes.update(currentNote._id, token, payload)
 
-      // Keep the live note text from the latest ref; only refresh server-managed fields.
       const serverNote = res.note || res
       const mergedNote = {
         ...latestNote,
@@ -142,7 +146,7 @@ const NoteEditor = () => {
     }
   }, [token, isInitialLoading])
 
-  // ✅ STABLE DEBOUNCE: ZERO dependencies! Always gets latest save function at runtime
+  // ✅ STABLE DEBOUNCE
   const scheduleSave = useCallback(() => {
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => {
@@ -151,11 +155,10 @@ const NoteEditor = () => {
     }, 1500)
   }, [save])
 
-  // ✅ CONTROLLED INPUT: Update local state instantly, track changes, queue save
+  // ✅ CONTROLLED INPUT MULTIPLEXER
   const handleChange = useCallback((field, value) => {
     console.log(`📝 Local change: ${field} = "${value.substring ? value.substring(0, 30) : value}..."`)
     
-    // Update state for immediate UI feedback
     setNote((prev) => {
       if (!prev) return prev
       const updated = { ...prev, [field]: value }
@@ -163,10 +166,7 @@ const NoteEditor = () => {
       return updated
     })
     
-    // Track this change
     pendingChanges.current[field] = true
-    
-    // Queue save
     scheduleSave()
   }, [scheduleSave])
 
@@ -193,14 +193,13 @@ const NoteEditor = () => {
     handleChange('tags', (noteRef.current.tags || []).filter((t) => t !== tag))
   }, [handleChange])
 
-  // ✅ AI INTEGRATION: No note dependency!
+  // ✅ AI ENGINE PIPELINE
   const generateAI = useCallback(async () => {
     if (!noteRef.current || !id) return
     setAiLoading(true)
     try {
       console.log('🤖 Requesting AI summary for note:', id)
       const res = await api.notes.generateSummary(id, token)
-      console.log('📡 AI Response:', res)
       
       const metadata = res.aiMetadata || res.note?.aiMetadata || {
         summary: res.summary || '',
@@ -208,7 +207,6 @@ const NoteEditor = () => {
         suggested_title: res.suggestedTitle || res.suggested_title || '',
       }
       
-      console.log('✅ AI Metadata extracted:', metadata)
       const normalizedMetadata = {
         summary: metadata.summary || '',
         actionItems: normalizeActionItems(metadata.actionItems || metadata.action_items || []),
@@ -229,14 +227,12 @@ const NoteEditor = () => {
     if (!noteRef.current) return
     const next = !noteRef.current.isPublic
     try {
-      console.log('🔄 Toggling visibility to:', next)
       const res = await api.shared.toggleVisibility(noteRef.current._id, token, { isPublic: next })
       setNote((prev) => prev ? { ...prev, isPublic: next, shareId: res.shareId || prev.shareId } : prev)
       if (noteRef.current) {
         noteRef.current.isPublic = next
         noteRef.current.shareId = res.shareId || noteRef.current.shareId
       }
-      console.log('✅ Visibility toggled')
     } catch (err) {
       console.error('❌ Visibility toggle failed:', err)
     }
@@ -245,14 +241,12 @@ const NoteEditor = () => {
   const toggleArchive = useCallback(async () => {
     if (!noteRef.current) return
     try {
-      console.log('📦 Toggling archive state')
       const res = await api.notes.update(noteRef.current._id, token, { isArchived: !noteRef.current.isArchived })
       const serverNote = res.note || res
       setNote((prev) => prev ? { ...prev, isArchived: serverNote.isArchived } : prev)
       if (noteRef.current) {
         noteRef.current.isArchived = serverNote.isArchived
       }
-      console.log('✅ Archive state updated')
     } catch (err) {
       console.error('❌ Archive toggle failed:', err)
     }
@@ -262,7 +256,6 @@ const NoteEditor = () => {
     if (!noteRef.current?.shareId) return
     const url = `http://localhost:5173/shared/${noteRef.current.shareId}`
     try {
-      console.log('📋 Copying share link:', url)
       await navigator.clipboard.writeText(url)
       setCopied(true)
       setTimeout(() => setCopied(false), 1400)
@@ -275,7 +268,6 @@ const NoteEditor = () => {
     if (!noteRef.current) return
     const suggested = noteRef.current?.aiMetadata?.suggested_title || noteRef.current?.aiMetadata?.suggestedTitle
     if (!suggested) return
-    console.log('✏️ Applying suggested title:', suggested)
     handleChange('title', suggested)
   }, [handleChange])
 
@@ -310,6 +302,12 @@ const NoteEditor = () => {
     }
   }, [token])
 
+  // ✅ CRITICAL ERROR BOUNDARY GATEWAY SHUNT
+  if (!noteExists) {
+    return <NotFound />
+  }
+
+  // Standby placeholder during network synchronization
   if (isInitialLoading || !note) {
     return (
       <div className="mx-auto w-full max-w-7xl rounded-3xl border border-white/40 bg-white/70 p-12 text-center text-slate-700 backdrop-blur-md">

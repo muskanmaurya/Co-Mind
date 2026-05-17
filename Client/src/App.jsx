@@ -14,10 +14,12 @@ const App = () => {
       <div className="min-h-screen bg-sky-wallpaper bg-cover bg-fixed bg-center px-4 py-6 md:px-8 md:py-8">
         <div className="fixed inset-0 -z-10 bg-gradient-to-b from-sky-300/45 via-sky-200/30 to-sky-100/30" />
         <Routes>
+          {/* Root Gateway: Hands off management to the Protected Dashboard route instantly */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/login" element={<AuthForm mode="login" />} />
           <Route path="/signup" element={<AuthForm mode="signup" />} />
 
+          {/* Protected Application Space */}
           <Route
             path="/dashboard"
             element={<ProtectedRoute><NotesList /></ProtectedRoute>}
@@ -35,10 +37,11 @@ const App = () => {
             element={<ProtectedRoute><NoteEditor /></ProtectedRoute>}
           />
 
+          {/* Completely Open Shared Link Path */}
           <Route path="/shared/:shareId" element={<PublicSharePage />} />
 
+          {/* Wildcard Error Boundary Catch */}
           <Route path="*" element={<NotFound />} />
-
         </Routes>
       </div>
     </AuthProvider>
