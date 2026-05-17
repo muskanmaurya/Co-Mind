@@ -5,6 +5,7 @@ import AuthForm from './pages/Auth/AuthForm'
 import NotesList from './pages/Dashboard/NotesList'
 import NoteEditor from './pages/Editor/NoteEditor'
 import PublicSharePage from './pages/Shared/PublicSharePage'
+import NotFound from './pages/NotFound/NotFound'
 import './App.css'
 
 const App = () => {
@@ -36,7 +37,7 @@ const App = () => {
 
           <Route path="/shared/:shareId" element={<PublicSharePage />} />
 
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<NotFound />} />
 
         </Routes>
       </div>
