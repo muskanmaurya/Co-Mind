@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { CircleUserRound, Mail, Lock, User, LogIn } from 'lucide-react'
+import { CircleUserRound, Mail, Lock, User } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 
 const AuthForm = ({ mode='login' }) => {
@@ -11,8 +11,12 @@ const AuthForm = ({ mode='login' }) => {
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [notice, setNotice] = useState(null)
   const navigate = useNavigate()
-  const { login, signup, token } = useAuth()
+  const authContext = useAuth()
+  const login = authContext?.login
+  const signup = authContext?.signup
+  const token = authContext?.token
 
   useEffect(() => {
     if (token) navigate('/dashboard')
@@ -21,13 +25,17 @@ const AuthForm = ({ mode='login' }) => {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError(null)
+    if (!login || !signup) {
+      setError('Authentication context is unavailable. Please reload and try again.')
+      return
+    }
     setLoading(true)
     try {
       if (mode === 'signup') await signup({ name, email, password })
       else await login({ email, password })
       navigate('/dashboard')
     } catch (err) {
-      setError(err.body?.message || err.message || 'Request failed')
+      setError(err.body?.message || err.message || 'Unable to connect to the server. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -37,6 +45,11 @@ const AuthForm = ({ mode='login' }) => {
   const subtitle = mode === 'signup'
     ? 'Start collaborating with your AI-powered workspace'
     : 'Enter your email and password to access your account'
+
+  const showNotice = (message) => {
+    setNotice(message)
+    setTimeout(() => setNotice(null), 3200)
+  }
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-6xl items-center justify-center">
@@ -74,6 +87,12 @@ const AuthForm = ({ mode='login' }) => {
 
           <h1 className="text-3xl font-black tracking-tight text-slate-900">{title}</h1>
           <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
+
+          {notice && (
+            <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50/90 px-3 py-2 text-xs font-medium text-sky-700">
+              {notice}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             {mode === 'signup' && (
@@ -133,7 +152,13 @@ const AuthForm = ({ mode='login' }) => {
                 />
                 Remember me
               </label>
-              <button type="button" className="font-semibold text-slate-600 hover:text-slate-900">Forgot Password</button>
+              <button
+                type="button"
+                onClick={() => showNotice('Demo reset credentials dispatched safely.')}
+                className="font-semibold text-slate-600 hover:text-slate-900"
+              >
+                Forgot Password
+              </button>
             </div>
 
             <motion.button
@@ -145,13 +170,6 @@ const AuthForm = ({ mode='login' }) => {
               {loading ? 'Please wait...' : mode === 'signup' ? 'Sign Up' : 'Sign In'}
             </motion.button>
 
-            <button
-              type="button"
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-            >
-              <LogIn size={16} strokeWidth={1.75} className="text-sky-600" />
-              Sign in with Google
-            </button>
           </form>
 
           {error && <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>}

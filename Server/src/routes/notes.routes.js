@@ -7,6 +7,7 @@ import {
   updateNote,
   deleteNote,
   generateSummary,
+  inviteCollaborator,
 } from '../controllers/notes.controller.js';
 import { searchNotes } from '../controllers/dashboard.controller.js';
 
@@ -182,5 +183,6 @@ notesRouter.delete('/:id', deleteNote);
  * 500: Server error
  */
 notesRouter.post('/:id/generate-summary', generateSummary);
+notesRouter.post('/:id/invite', inviteCollaborator);
 
 export default notesRouter;

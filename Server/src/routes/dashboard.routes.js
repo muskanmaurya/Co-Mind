@@ -50,5 +50,6 @@ dashboardRouter.use(authMiddleware);
  * 500: Server error
  */
 dashboardRouter.get('/insights', getInsights);
+dashboardRouter.get('/stats', getInsights);
 
 export default dashboardRouter;

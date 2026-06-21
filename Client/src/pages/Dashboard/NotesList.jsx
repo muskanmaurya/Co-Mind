@@ -8,9 +8,11 @@ import api from '../../services/api'
 const NotesList = () => {
   const { token, logout, user } = useAuth()
   const [notes, setNotes] = useState([])
+  const [insights, setInsights] = useState(null)
   const [q, setQ] = useState('')
   const [activeTag, setActiveTag] = useState('All')
   const [loading, setLoading] = useState(true)
+  const [insightsLoading, setInsightsLoading] = useState(true)
   const navigate = useNavigate()
 
   const load = async () => {
@@ -28,6 +30,22 @@ const NotesList = () => {
   }
 
   useEffect(()=>{ load() }, [token])
+
+  useEffect(() => {
+    const loadInsights = async () => {
+      setInsightsLoading(true)
+      try {
+        const res = await api.dashboard.stats(token)
+        setInsights(res.dashboard || null)
+      } catch (err) {
+        console.error('Failed to load dashboard stats:', err)
+      } finally {
+        setInsightsLoading(false)
+      }
+    }
+
+    if (token) loadInsights()
+  }, [token])
 
   const createNew = async () => {
     try {
@@ -56,6 +74,22 @@ const NotesList = () => {
     if (activeTag === 'All') return notes
     return notes.filter(n => (n.tags || []).includes(activeTag))
   }, [notes, activeTag])
+
+  const actionCompletion = useMemo(() => {
+    const allItems = notes.flatMap((n) => n?.aiMetadata?.actionItems || [])
+    const total = allItems.length
+    if (!total) return { total: 0, completed: 0, percentage: 0 }
+
+    const completed = allItems.filter((item) => item?.isCompleted).length
+    return {
+      total,
+      completed,
+      percentage: Math.round((completed / total) * 100),
+    }
+  }, [notes])
+
+  const activeNotesCount = insights?.summary?.activeNotes ?? 0
+  const aiRequests = insights?.aiUsage?.totalRequests ?? 0
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -120,6 +154,46 @@ const NotesList = () => {
           <Plus size={16} strokeWidth={1.75} />
           New Note
         </button>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-white/40 bg-white/70 p-5 backdrop-blur-md">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Velocity</p>
+          <p className="mt-3 text-3xl font-black text-slate-900">
+            {insightsLoading ? '--' : activeNotesCount}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">Active notes in motion</p>
+        </div>
+
+        <div className="rounded-2xl border border-white/40 bg-white/70 p-5 backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">AI Engagement</p>
+            <span className="text-xs font-semibold text-sky-700">{insightsLoading ? '--' : aiRequests}</span>
+          </div>
+          <div className="mt-3 h-2 rounded-full bg-slate-200/80">
+            <div
+              className="h-2 rounded-full bg-sky-500 transition-all duration-500"
+              style={{ width: `${Math.min(100, aiRequests * 10)}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-slate-500">Summary generation requests this week</p>
+        </div>
+
+        <div className="rounded-2xl border border-white/40 bg-white/70 p-5 backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task Completion</p>
+            <span className="text-xs font-semibold text-sky-700">{actionCompletion.percentage}%</span>
+          </div>
+          <div className="mt-3 h-2 rounded-full bg-slate-200/80">
+            <div
+              className="h-2 rounded-full bg-sky-500 transition-all duration-500"
+              style={{ width: `${actionCompletion.percentage}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            {actionCompletion.completed} of {actionCompletion.total} extracted action items resolved
+          </p>
+        </div>
       </section>
 
       {loading ? (
