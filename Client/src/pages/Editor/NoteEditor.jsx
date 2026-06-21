@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { io } from 'socket.io-client'
 import {
   Sparkles,
   Copy,
@@ -11,10 +12,14 @@ import {
   Tag,
   Archive,
   ArchiveRestore,
+  UserPlus,
+  Users,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import api from '../../services/api'
 import NotFound from '../NotFound/NotFound' // ✅ Pull in aesthetic error view
+import { ToastContainer } from '../../components/Toast'
+import { useToast } from '../../hooks/useToast'
 
 const normalizeActionItems = (actionItems = []) => {
   if (!Array.isArray(actionItems)) return []
@@ -41,8 +46,10 @@ const normalizeActionItems = (actionItems = []) => {
 
 const NoteEditor = () => {
   const { id } = useParams()
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const navigate = useNavigate()
+  const socketRef = useRef(null)
+  const { toasts, removeToast, showSuccess, showError } = useToast()
 
   // ✅ STATE: Only for rendering
   const [note, setNote] = useState(null)
@@ -52,6 +59,12 @@ const NoteEditor = () => {
   const [copied, setCopied] = useState(false)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [noteExists, setNoteExists] = useState(true) // ✅ Safe state tracking
+  const [socketRole, setSocketRole] = useState(null)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState('editor')
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteMessage, setInviteMessage] = useState('')
+  const [collabError, setCollabError] = useState('')
 
   // ✅ REFS: Tracking data for save operations (NOT in closure dependencies)
   const timer = useRef(null)
@@ -63,6 +76,22 @@ const NoteEditor = () => {
   useEffect(() => {
     noteRef.current = note
   }, [note])
+
+  const accessRole = (() => {
+    if (socketRole) return socketRole
+    if (!note || !user?.email) return 'viewer'
+
+    const userId = String(user._id || '')
+    const noteOwnerId = String(note.userId || '')
+    if (userId && noteOwnerId && userId === noteOwnerId) return 'owner'
+
+    const collaborator = (note.collaborators || []).find(
+      (entry) => String(entry.email || '').toLowerCase().trim() === String(user.email || '').toLowerCase().trim()
+    )
+
+    if (collaborator?.role === 'editor') return 'editor'
+    return 'viewer'
+  })()
 
   // ✅ ISOLATED INITIAL LOAD: Only fetch once when note ID changes
   useEffect(() => {
@@ -93,6 +122,67 @@ const NoteEditor = () => {
     }
     loadInitialNote()
   }, [id, token])
+
+  useEffect(() => {
+    if (!id || isInitialLoading || !noteRef.current || !token || !user?.email) return
+
+    const socket = io('http://localhost:8000')
+    socketRef.current = socket
+
+    socket.emit('join-note', {
+      noteId: id,
+      userEmail: user.email,
+      token,
+    })
+
+    socket.on('collab-authorized', (session = {}) => {
+      if (session?.role === 'viewer') setSocketRole('viewer')
+      if (session?.role === 'editor') setSocketRole('editor')
+      if (session?.role === 'owner') setSocketRole('owner')
+      setCollabError('')
+    })
+
+    socket.on('collab-error', (event = {}) => {
+      setCollabError(event.message || 'Realtime collaboration channel rejected this session.')
+    })
+
+    socket.on('note-updated', (updatedData = {}) => {
+      setNote((prev) => {
+        if (!prev) return prev
+
+        const next = { ...prev }
+        let hasUpdate = false
+
+        if (updatedData.title !== undefined && !pendingChanges.current.title) {
+          next.title = updatedData.title
+          hasUpdate = true
+        }
+
+        if (updatedData.content !== undefined && !pendingChanges.current.content) {
+          next.content = updatedData.content
+          hasUpdate = true
+        }
+
+        if (hasUpdate) {
+          noteRef.current = next
+          return next
+        }
+
+        return prev
+      })
+    })
+
+    return () => {
+      socket.off('collab-authorized')
+      socket.off('collab-error')
+      socket.off('note-updated')
+      socket.disconnect()
+      setSocketRole(null)
+      if (socketRef.current === socket) {
+        socketRef.current = null
+      }
+    }
+  }, [id, isInitialLoading, token, user])
 
   // Cleanup timer on unmount
   useEffect(() => () => {
@@ -157,25 +247,39 @@ const NoteEditor = () => {
 
   // ✅ CONTROLLED INPUT MULTIPLEXER
   const handleChange = useCallback((field, value) => {
+    if (accessRole === 'viewer') return
+
     console.log(`📝 Local change: ${field} = "${value.substring ? value.substring(0, 30) : value}..."`)
-    
-    setNote((prev) => {
-      if (!prev) return prev
-      const updated = { ...prev, [field]: value }
-      noteRef.current = updated
-      return updated
-    })
+
+    const currentNote = noteRef.current
+    if (!currentNote) return
+
+    const updated = { ...currentNote, [field]: value }
+    noteRef.current = updated
+    setNote(updated)
     
     pendingChanges.current[field] = true
+
+    if (field === 'title' || field === 'content') {
+      socketRef.current?.emit('edit-note', {
+        noteId: id,
+        content: field === 'content' ? value : updated.content,
+        title: field === 'title' ? value : updated.title,
+        userEmail: user?.email,
+      })
+    }
+
     scheduleSave()
-  }, [scheduleSave])
+  }, [accessRole, id, scheduleSave, user])
 
   const handleManualSave = useCallback(async () => {
+    if (accessRole === 'viewer') return
     const ok = await save()
     if (ok) navigate('/dashboard')
-  }, [save, navigate])
+  }, [accessRole, save, navigate])
 
   const onTagEnter = useCallback((e) => {
+    if (accessRole === 'viewer') return
     if (e.key !== 'Enter') return
     e.preventDefault()
     const clean = tagInput.trim()
@@ -186,15 +290,17 @@ const NoteEditor = () => {
     }
     handleChange('tags', [...(noteRef.current.tags || []), clean])
     setTagInput('')
-  }, [tagInput, handleChange])
+  }, [accessRole, tagInput, handleChange])
 
   const removeTag = useCallback((tag) => {
+    if (accessRole === 'viewer') return
     if (!noteRef.current) return
     handleChange('tags', (noteRef.current.tags || []).filter((t) => t !== tag))
-  }, [handleChange])
+  }, [accessRole, handleChange])
 
   // ✅ AI ENGINE PIPELINE
   const generateAI = useCallback(async () => {
+    if (accessRole === 'viewer') return
     if (!noteRef.current || !id) return
     setAiLoading(true)
     try {
@@ -221,9 +327,10 @@ const NoteEditor = () => {
     } finally {
       setAiLoading(false)
     }
-  }, [id, token])
+  }, [accessRole, id, token])
 
   const toggleVisibility = useCallback(async () => {
+    if (accessRole === 'viewer') return
     if (!noteRef.current) return
     const next = !noteRef.current.isPublic
     try {
@@ -236,9 +343,10 @@ const NoteEditor = () => {
     } catch (err) {
       console.error('❌ Visibility toggle failed:', err)
     }
-  }, [token])
+  }, [accessRole, token])
 
   const toggleArchive = useCallback(async () => {
+    if (accessRole === 'viewer') return
     if (!noteRef.current) return
     try {
       const res = await api.notes.update(noteRef.current._id, token, { isArchived: !noteRef.current.isArchived })
@@ -250,7 +358,7 @@ const NoteEditor = () => {
     } catch (err) {
       console.error('❌ Archive toggle failed:', err)
     }
-  }, [token])
+  }, [accessRole, token])
 
   const copyShareLink = useCallback(async () => {
     if (!noteRef.current?.shareId) return
@@ -265,13 +373,15 @@ const NoteEditor = () => {
   }, [])
 
   const applySuggestedTitle = useCallback(() => {
+    if (accessRole === 'viewer') return
     if (!noteRef.current) return
     const suggested = noteRef.current?.aiMetadata?.suggested_title || noteRef.current?.aiMetadata?.suggestedTitle
     if (!suggested) return
     handleChange('title', suggested)
-  }, [handleChange])
+  }, [accessRole, handleChange])
 
   const toggleActionItem = useCallback(async (index) => {
+    if (accessRole === 'viewer') return
     if (!noteRef.current?.aiMetadata) return
 
     const currentItems = normalizeActionItems(noteRef.current.aiMetadata.actionItems || noteRef.current.aiMetadata.action_items || [])
@@ -300,7 +410,48 @@ const NoteEditor = () => {
     } catch (error) {
       console.error('❌ Failed to persist action item state:', error)
     }
-  }, [token])
+  }, [accessRole, token])
+
+  const inviteCollaborator = useCallback(async () => {
+    if (accessRole !== 'owner' || !noteRef.current) return
+
+    const email = inviteEmail.trim().toLowerCase()
+    if (!email) {
+      showError('Please enter a collaborator email address.')
+      return
+    }
+
+    setInviteLoading(true)
+    try {
+      const res = await api.notes.invite(noteRef.current._id, token, { email, role: inviteRole })
+      const updatedNote = res.note || res
+      setNote((prev) => (prev ? { ...prev, collaborators: updatedNote.collaborators || [] } : prev))
+      if (noteRef.current) {
+        noteRef.current.collaborators = updatedNote.collaborators || []
+      }
+
+      // ✅ Reset form state completely
+      setInviteEmail('')
+      setInviteRole('editor')
+
+      // Surface server-side email delivery result
+      if (res?.emailError) {
+        const msg = res.emailErrorMessage || 'Collaborator added but email delivery failed.'
+        showError(`❌ Invitation saved but email failed: ${msg}`)
+        setInviteMessage(msg)
+      } else {
+        const providerId = res?.emailDeliveryId ? ` (id: ${res.emailDeliveryId})` : ''
+        showSuccess(`✅ Successfully invited ${email} as ${inviteRole}!${providerId}`)
+        setInviteMessage('Invitation sent')
+      }
+    } catch (error) {
+      const errorMsg = error?.body?.message || error?.message || 'Failed to send invitation'
+      showError(`❌ Invitation failed: ${errorMsg}`)
+      setInviteMessage(errorMsg)
+    } finally {
+      setInviteLoading(false)
+    }
+  }, [accessRole, inviteEmail, inviteRole, token, showSuccess, showError])
 
   // ✅ CRITICAL ERROR BOUNDARY GATEWAY SHUNT
   if (!noteExists) {
@@ -320,9 +471,12 @@ const NoteEditor = () => {
   }
 
   const aiActionItems = normalizeActionItems(note?.aiMetadata?.actionItems || note?.aiMetadata?.action_items || [])
+  const canEdit = accessRole === 'owner' || accessRole === 'editor'
+  const collaborators = note?.collaborators || []
 
   return (
     <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-6 xl:grid-cols-[1.75fr_1fr]">
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
       <motion.section
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -346,20 +500,29 @@ const NoteEditor = () => {
             </button>
           </div>
 
-          <button
-            onClick={handleManualSave}
-            disabled={saving || isInitialLoading}
-            className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-          >
-            {saving ? 'Saving...' : 'Save now'}
-          </button>
+          {canEdit && (
+            <button
+              onClick={handleManualSave}
+              disabled={saving || isInitialLoading}
+              className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+            >
+              {saving ? 'Saving...' : 'Save now'}
+            </button>
+          )}
         </header>
+
+        {collabError && (
+          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600">
+            {collabError}
+          </div>
+        )}
 
         <div className="space-y-4">
           <input
             className="w-full border-0 bg-transparent text-4xl font-black tracking-tight text-slate-900 outline-none placeholder:text-slate-400"
             value={note.title || ''}
             onChange={(e) => handleChange('title', e.target.value)}
+            readOnly={!canEdit}
             placeholder="Untitled Note"
           />
 
@@ -374,6 +537,7 @@ const NoteEditor = () => {
                 <button
                   key={tag}
                   onClick={() => removeTag(tag)}
+                  disabled={!canEdit}
                   className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700"
                 >
                   {tag} ×
@@ -385,6 +549,7 @@ const NoteEditor = () => {
               value={tagInput}
               onChange={(e) => setTagInput(e.target.value)}
               onKeyDown={onTagEnter}
+              readOnly={!canEdit}
               placeholder="Type a tag and press Enter"
               className="w-full rounded-xl border border-slate-200/70 bg-slate-50/60 px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-sky-300"
             />
@@ -395,12 +560,13 @@ const NoteEditor = () => {
               className="min-h-[56vh] w-full resize-y rounded-2xl border border-white/50 bg-white/75 p-5 text-[15px] leading-7 text-slate-700 outline-none focus:ring-2 focus:ring-sky-300"
               value={note.content || ''}
               onChange={(e) => handleChange('content', e.target.value)}
+              readOnly={!canEdit}
               placeholder="Start writing your thoughts..."
             />
 
             <div className="absolute bottom-3 right-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs text-slate-500">
               <span className={`h-2 w-2 rounded-full ${saving ? 'animate-pulse bg-sky-500' : 'bg-emerald-500'}`} />
-              {saving ? 'Auto-saving...' : 'Synced'}
+              {!canEdit ? 'Read-Only Access' : saving ? 'Auto-saving...' : 'Synced'}
             </div>
           </div>
         </div>
@@ -416,6 +582,7 @@ const NoteEditor = () => {
 
           <button
             onClick={toggleVisibility}
+            disabled={!canEdit}
             className="mb-3 flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-700"
           >
             <span className="inline-flex items-center gap-2">
@@ -446,9 +613,73 @@ const NoteEditor = () => {
         </section>
 
         <section className="rounded-2xl border border-white/50 bg-white/70 p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <Users size={16} strokeWidth={1.75} className="text-sky-600" />
+            Document Access Control
+          </div>
+
+          {accessRole === 'owner' ? (
+            <div className="space-y-2">
+              <input
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="Collaborator email..."
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-sky-300"
+              />
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none"
+                >
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+
+                <button
+                  onClick={inviteCollaborator}
+                  disabled={inviteLoading}
+                  className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-60"
+                >
+                  <UserPlus size={14} strokeWidth={1.75} />
+                  {inviteLoading ? 'Inviting...' : 'Invite'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">Only the note owner can manage collaborator permissions.</p>
+          )}
+
+          {inviteMessage && (
+            <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+              {inviteMessage}
+            </div>
+          )}
+
+          <div className="mt-3 space-y-2">
+            {collaborators.length === 0 ? (
+              <p className="text-xs text-slate-500">No collaborators added yet.</p>
+            ) : (
+              collaborators.map((collaborator) => (
+                <div
+                  key={collaborator.email}
+                  className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                >
+                  <span className="text-xs text-slate-700">{collaborator.email}</span>
+                  <span className="rounded-full border border-sky-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-sky-700">
+                    {collaborator.role}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-white/50 bg-white/70 p-4">
           <button
             onClick={generateAI}
-            disabled={aiLoading}
+            disabled={aiLoading || !canEdit}
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 disabled:opacity-70"
           >
             <Sparkles size={15} strokeWidth={1.75} />
@@ -474,6 +705,7 @@ const NoteEditor = () => {
               </p>
               <button
                 onClick={applySuggestedTitle}
+                disabled={!canEdit}
                 className="mt-3 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-50"
               >
                 Use this title
@@ -495,6 +727,7 @@ const NoteEditor = () => {
                     <li key={`${idx}-${item.text}`} className="flex items-start gap-2 text-sm text-slate-700">
                       <button
                         onClick={() => toggleActionItem(idx)}
+                        disabled={!canEdit}
                         className="mt-0.5"
                       >
                         <CheckSquare size={16} strokeWidth={1.75} className={item.isCompleted ? 'text-sky-600' : 'text-slate-400'} />

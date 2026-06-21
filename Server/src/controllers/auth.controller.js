@@ -1,6 +1,8 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import userModel from '../models/user.model.js';
+import invitationModel from '../models/invitation.model.js';
+import noteModel from '../models/notes.model.js';
 
 /**
  * Basic email validator using regex
@@ -14,15 +16,22 @@ const isValidEmail = (email) => {
 
 /**
  * Generate a JWT token for the authenticated user
- * @param {string} userId - The user's MongoDB ID
+ * @param {Object} user - The user payload used for signing
  * @returns {string} JWT token
  */
-const generateToken = (userId) => {
+const generateToken = (user) => {
   if (!process.env.JWT_SECRET) {
     // Don't throw raw error — return null so callers can handle consistently
     return null;
   }
-  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(
+    {
+      userId: user.userId,
+      email: user.email,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
 };
 
 /**
@@ -64,10 +73,45 @@ export const registerController = async (req, res) => {
     const newUser = await userModel.create({ name: name.trim(), email: email.toLowerCase().trim(), password: hashedPassword });
 
     // Generate JWT token
-    const token = generateToken(newUser._id.toString());
+    const token = generateToken({
+      userId: newUser._id.toString(),
+      email: newUser.email,
+    });
     if (!token) {
       console.error('JWT_SECRET missing');
       return res.status(500).json({ message: 'Server misconfiguration: JWT_SECRET not set' });
+    }
+
+    // Auto-accept pending invitations for this email
+    try {
+      const pendingInvitations = await invitationModel.find({
+        invitedEmail: newUser.email.toLowerCase().trim(),
+        status: 'pending',
+      });
+
+      for (const invitation of pendingInvitations) {
+        const note = await noteModel.findById(invitation.noteId);
+        if (note) {
+          const existingCollab = (note.collaborators || []).findIndex(
+            (c) => c.email.toLowerCase().trim() === newUser.email.toLowerCase().trim()
+          );
+
+          if (existingCollab === -1) {
+            note.collaborators.push({
+              email: newUser.email.toLowerCase().trim(),
+              role: invitation.role,
+            });
+            await note.save();
+          }
+
+          await invitationModel.updateOne(
+            { _id: invitation._id },
+            { status: 'accepted', updatedAt: new Date() }
+          );
+        }
+      }
+    } catch (inviteError) {
+      console.error('Error processing pending invitations:', inviteError);
     }
 
     // Return success response (exclude password)
@@ -118,7 +162,10 @@ export const loginController = async (req, res) => {
     }
 
     // Generate JWT token
-    const token = generateToken(user._id.toString());
+    const token = generateToken({
+      userId: user._id.toString(),
+      email: user.email,
+    });
     if (!token) {
       console.error('JWT_SECRET missing');
       return res.status(500).json({ message: 'Server misconfiguration: JWT_SECRET not set' });

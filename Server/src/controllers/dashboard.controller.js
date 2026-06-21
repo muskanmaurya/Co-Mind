@@ -1,5 +1,6 @@
 import noteModel from '../models/notes.model.js';
 import aiUsageModel from '../models/aiUsage.model.js';
+import mongoose from 'mongoose';
 
 /**
  * Get productivity insights and dashboard data for authenticated user
@@ -21,6 +22,7 @@ import aiUsageModel from '../models/aiUsage.model.js';
 export const getInsights = async (req, res) => {
   try {
     const userId = req.user.id;
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     // Get total notes count
@@ -43,7 +45,7 @@ export const getInsights = async (req, res) => {
     // Get most-used tags
     const tagStats = await noteModel.aggregate([
       {
-        $match: { userId: { $oid: userId } },
+        $match: { userId: userObjectId },
       },
       {
         $unwind: '$tags',
@@ -71,7 +73,7 @@ export const getInsights = async (req, res) => {
     const aiUsageByOperation = await aiUsageModel.aggregate([
       {
         $match: {
-          userId: { $oid: userId },
+          userId: userObjectId,
           createdAt: { $gte: sevenDaysAgo },
         },
       },
@@ -90,7 +92,7 @@ export const getInsights = async (req, res) => {
     const weeklyActivity = await noteModel.aggregate([
       {
         $match: {
-          userId: { $oid: userId },
+          userId: userObjectId,
           updatedAt: { $gte: sevenDaysAgo },
         },
       },
@@ -164,6 +166,7 @@ export const getInsights = async (req, res) => {
 export const searchNotes = async (req, res) => {
   try {
     const userId = req.user.id;
+    const userEmail = req.user.email;
     const { q } = req.query;
 
     if (!q || typeof q !== 'string' || q.trim().length === 0) {
@@ -175,10 +178,19 @@ export const searchNotes = async (req, res) => {
     // Search using MongoDB regex for case-insensitive search
     const notes = await noteModel
       .find({
-        userId,
-        $or: [
-          { title: { $regex: searchTerm, $options: 'i' } },
-          { content: { $regex: searchTerm, $options: 'i' } },
+        $and: [
+          {
+            $or: [
+              { userId },
+              { 'collaborators.email': userEmail },
+            ],
+          },
+          {
+            $or: [
+              { title: { $regex: searchTerm, $options: 'i' } },
+              { content: { $regex: searchTerm, $options: 'i' } },
+            ],
+          },
         ],
       })
       .sort({ updatedAt: -1 })

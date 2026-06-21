@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import userModel from '../models/user.model.js';
 
 /**
  * Authentication Middleware
@@ -9,7 +10,7 @@ import jwt from 'jsonwebtoken';
  * @param {Function} next - Express next middleware function
  * @returns {void}
  */
-export const authMiddleware = (req, res, next) => {
+export const authMiddleware = async (req, res, next) => {
   try {
     // Extract token from Authorization header
     const token = req.headers.authorization?.split(' ')[1];
@@ -26,9 +27,22 @@ export const authMiddleware = (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    const userId = decoded.userId;
+    let userEmail = typeof decoded.email === 'string' ? decoded.email.toLowerCase() : null;
+
+    if (!userEmail && userId) {
+      const user = await userModel.findById(userId).select('email').lean();
+      userEmail = user?.email ? String(user.email).toLowerCase() : null;
+    }
+
+    if (!userId || !userEmail) {
+      return res.status(401).json({ message: 'Invalid token payload. Please login again.' });
+    }
+
     // Attach user info to request
     req.user = {
-      id: decoded.userId,
+      id: userId,
+      email: userEmail,
     };
 
     next();
