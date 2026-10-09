@@ -2,23 +2,31 @@
 
 Co-Mind is an AI-powered collaborative notes application that supports real-time editing, collaborator invitations via email, and AI-generated summaries. This repo contains a Vite + React frontend and a Node.js + Express backend with Socket.io and MongoDB.
 
-**Project layout**
+## Project Layout
+
 - `Client/` — React + Vite frontend
 - `Server/` — Node.js + Express backend, Socket.io, Mongoose models
 
-**Screenshots**
-Please place screenshots in the repository under `docs/screenshots/` with these exact filenames so the README displays them correctly:
-- `docs/screenshots/signup.png` — Signup / Login view
-- `docs/screenshots/invite-success.png` — Invite sent confirmation / toast
-- `docs/screenshots/invite-failure.png` — Invite failed provider error (Resend sandbox/domain unverified)
-- `docs/screenshots/editor-collaboration.png` — Note editor showing collaborators / realtime edits
-- `docs/screenshots/dashboard.png` — Project dashboard (optional)
+## Screenshots
 
-Make sure the `docs/screenshots/` folder is committed with those filenames.
+### Signup / Login View
+![Signup / Login View](docs/screenshots/signup.png)
+
+### Invite Sent Confirmation
+![Invite Sent Confirmation](docs/screenshots/invite-success.png)
+
+### Invite Failed Provider Error
+![Invite Failed Provider Error](docs/screenshots/invite-failure.png)
+
+### Note Editor & Realtime Collaboration
+![Editor & Collaboration](docs/screenshots/editor-collaboration.png)
+
+### Project Dashboard
+![Dashboard](docs/screenshots/dashboard.png)
 
 ---
 
-**Quick start (local development)**
+## Quick Start (Local Development)
 
 Prerequisites:
 - Node.js 18+ and npm
