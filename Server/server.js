@@ -12,11 +12,23 @@ import noteModel from './src/models/notes.model.js';
 import userModel from './src/models/user.model.js';
 import morgan from 'morgan';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// 1. Resolve __dirname safely in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// 2. Force dotenv to look directly in the current Server/ folder
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+// 3. Verify it loaded immediately
+console.log("🔍 DEBUG CHECK - EMAIL_USER loaded:", process.env.EMAIL_USER ? "YES ✅" : "NO ❌");
 
 
 const app = express();
 const httpServer = createServer(app);
-dotenv.config();
+// dotenv.config();
 
 const allowedOrigins = (process.env.CLIENT_ORIGINS || 'http://localhost:5173,http://localhost:5174')
     .split(',')
@@ -154,3 +166,33 @@ const startServer = async () => {
 };
 
 startServer();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

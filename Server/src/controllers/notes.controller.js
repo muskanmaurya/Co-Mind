@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import noteModel from '../models/notes.model.js';
 import invitationModel from '../models/invitation.model.js';
-import { sendInvitationEmail } from '../services/email.service.js';
+import { sendInviteEmail } from '../services/email.service.js';
 
 /**
  * Verify note ownership helper
@@ -575,13 +575,21 @@ export const inviteCollaborator = async (req, res) => {
 
       // Send invitation email
       const invitationLink = `${process.env.CLIENT_URL || 'http://localhost:5173/signup'}?invitedFor=${note.title.replace(/\s+/g, '+')}&inviteEmail=${normalizedEmail}`;
-      const emailResult = await sendInvitationEmail(
-        normalizedEmail,
-        note.title,
-        ownerName,
-        invitationLink,
-        role
-      );
+      const emailResult = await sendInviteEmail({
+        to: normalizedEmail,
+        noteTitle: note.title,
+        ownerName: ownerName,
+        inviteLink: invitationLink,
+        role: role
+    });
+
+      // const emailResult = await sendInviteEmail({
+      //   to: email,
+      //   inviteLink: inviteUrl,
+      //   noteTitle: note.title,
+      // })
+
+      
 
       console.log(`✉️ Invitation email sent to ${normalizedEmail} for note: ${note.title}`);
 
