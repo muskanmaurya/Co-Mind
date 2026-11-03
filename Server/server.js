@@ -30,7 +30,7 @@ const app = express();
 const httpServer = createServer(app);
 // dotenv.config();
 
-const allowedOrigins = (process.env.CLIENT_ORIGINS || 'http://localhost:5173,http://localhost:5174')
+const allowedOrigins = (process.env.CLIENT_ORIGINS || 'http://localhost:5173')
     .split(',')
     .map(origin => origin.trim())
     .filter(Boolean);

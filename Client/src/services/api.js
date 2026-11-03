@@ -1,5 +1,5 @@
-// const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
-const API_BASE = import.meta.env.VITE_BACKEND_API || 'http://localhost:8000'
+
+const API_BASE = import.meta.env.BACKEND_API || 'http://localhost:8000'
 
 function getAuthHeader(token){
   return token ? { Authorization: `Bearer ${token}` } : {}
